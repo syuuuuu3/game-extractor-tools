@@ -11,11 +11,12 @@ function Get-FolderSize {
         [string]$folderPath
     )
     
-    if (-not (Test-Path $folderPath)) {
+    if (-not (Test-Path -LiteralPath $folderPath)) {
+        Write-Host "フォルダが見つかりません: $folderPath"
         return $null
     }
 
-    $fileItems = Get-ChildItem $folderPath -Recurse -File -ErrorAction SilentlyContinue
+    $fileItems = Get-ChildItem -LiteralPath $folderPath -Recurse -File -ErrorAction SilentlyContinue
     if ($fileItems) {
         return ($fileItems | Measure-Object -Property Length -Sum).Sum
     }
@@ -31,7 +32,7 @@ function Test-Condition1 {
     
     if ($folderSize -ne 0) { return $false }
     
-    $items = Get-ChildItem $folderPath -ErrorAction SilentlyContinue
+    $items = Get-ChildItem -LiteralPath $folderPath -Recurse -ErrorAction SilentlyContinue
     return ($items.Count -eq 0)
 }
 
@@ -44,7 +45,7 @@ function Test-Condition2 {
     
     if ($folderSize -ne 0) { return $false }
     
-    $subFolders = Get-ChildItem $folderPath -Directory -ErrorAction SilentlyContinue
+    $subFolders = Get-ChildItem -LiteralPath $folderPath -Directory -ErrorAction SilentlyContinue
     if ($subFolders.Count -eq 0) { return $false }
     
     foreach ($subFolder in $subFolders) {
@@ -60,8 +61,8 @@ function Test-Condition3 {
         [string]$folderPath
     )
     
-    $files = Get-ChildItem $folderPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(zip|rar|7z)$' }
-    $folders = Get-ChildItem $folderPath -Directory -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $folderPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(zip|rar|7z)$' }
+    $folders = Get-ChildItem -LiteralPath $folderPath -Directory -ErrorAction SilentlyContinue
     
     if ($files.Count -eq 0 -or $folders.Count -eq 0) { return $false }
     
@@ -82,8 +83,8 @@ function Test-Condition4 {
         [string]$folderPath
     )
     
-    $files = Get-ChildItem $folderPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(zip|rar|7z)$' }
-    $folders = Get-ChildItem $folderPath -Directory -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $folderPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(zip|rar|7z)$' }
+    $folders = Get-ChildItem -LiteralPath $folderPath -Directory -ErrorAction SilentlyContinue
     
     if ($files.Count -eq 0 -or $folders.Count -eq 0) { return $false }
     
@@ -104,8 +105,8 @@ function Test-Condition5 {
         [string]$folderPath
     )
     
-    $files = Get-ChildItem $folderPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(zip|rar|7z)$' }
-    $folders = Get-ChildItem $folderPath -Directory -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -LiteralPath $folderPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '\.(zip|rar|7z)$' }
+    $folders = Get-ChildItem -LiteralPath $folderPath -Directory -ErrorAction SilentlyContinue
     
     return ($files.Count -gt 0 -and $folders.Count -eq 0)
 }
@@ -117,7 +118,7 @@ function Test-Condition6 {
         [long]$folderSize
     )
     
-    $subFolders = Get-ChildItem $folderPath -Directory -ErrorAction SilentlyContinue
+    $subFolders = Get-ChildItem -LiteralPath $folderPath -Directory -ErrorAction SilentlyContinue
     if ($subFolders.Count -eq 0) { return $false }
     
     return ($folderSize -gt 0)
@@ -137,12 +138,12 @@ function Test-Condition7 {
 function Main {
     try {
         # 出力ファイル準備
-        if (-not (Test-Path $TARGET_DIR)) {
+        if (-not (Test-Path -LiteralPath $TARGET_DIR)) {
             throw "対象ディレクトリが存在しません: $TARGET_DIR"
         }
 
         # 対象フォルダ一覧取得
-        $folders = Get-ChildItem $TARGET_DIR -Directory
+        $folders = Get-ChildItem -LiteralPath $TARGET_DIR -Directory
         
         # 進捗表示用
         $total = $folders.Count
@@ -157,13 +158,31 @@ function Main {
             
             # フォルダサイズ取得
             $folderSize = Get-FolderSize $folderPath
+            if ($null -eq $folderSize) {
+                Write-Host "  → エラー: フォルダサイズ取得失敗"
+                continue
+            }
             
             # 各条件判定
             if (Test-Condition1 $folderPath $folderSize) {
                 $result = "サイズ0、本体空"
+                
+                # 空フォルダを移動
+                $tempDir = "C:\Users\syuuu\Downloads\WIP\空フォルダ一時保管先"
+                if (-not (Test-Path -LiteralPath $tempDir)) {
+                    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+                }
+                
+                $destPath = Join-Path -Path $tempDir -ChildPath $folderName
+                if (-not (Test-Path -LiteralPath $destPath)) {
+                    Move-Item -LiteralPath $folderPath -Destination $destPath -Force
+                    $result += " → 移動済み"
+                } else {
+                    $result += " → 移動先に同名フォルダ存在"
+                }
             }
             elseif (Test-Condition2 $folderPath $folderSize) {
-                $subFolderCount = (Get-ChildItem $folderPath -Directory).Count
+                $subFolderCount = (Get-ChildItem -LiteralPath $folderPath -Directory).Count
                 $result = "サイズ0、空サブフォルダ${subFolderCount}つ"
             }
             elseif (Test-Condition3 $folderPath) {
@@ -183,7 +202,7 @@ function Main {
             }
 
             Write-Host "  → 判定結果: $result"
-            Add-Content $OUTPUT_FILE "[$current/$total] $folderName`r`n  → 判定結果: $result"
+            Add-Content -LiteralPath $OUTPUT_FILE "[$current/$total] $folderName`r`n  → 判定結果: $result"
         }
     }
     catch {
